@@ -1,11 +1,11 @@
 {
-  "AWSEBDockerrunVersion": 1,
+  "AWSEBDockerrunVersion": "1",
   "Image": {
-    "Name": "ketan/cla-assistant",
+    "Name": "ketan/cla-assistant"
   },
   "Ports": [
     {
       "ContainerPort": "5000"
     }
-  ],
+  ]
 }

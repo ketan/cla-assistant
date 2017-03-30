@@ -1,2 +1,6 @@
 node_modules/
 Dockerfile
+# Elastic Beanstalk Files
+.elasticbeanstalk/*
+.git
+.gitignore
