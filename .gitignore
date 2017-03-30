@@ -19,3 +19,7 @@ log
 log.*
 .vscode/*
 jsconfig.json
+# Elastic Beanstalk Files
+.elasticbeanstalk/*
+!.elasticbeanstalk/*.cfg.yml
+!.elasticbeanstalk/*.global.yml
