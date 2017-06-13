@@ -110,7 +110,11 @@ module.exports = {
 
         passport: [
             path.join(__dirname, 'server', 'passports', '*.js')
-        ]
+        ],
+
+        logging: {
+          level: process.env.LOG_LEVEL || 'info'
+        }
 
     },
 

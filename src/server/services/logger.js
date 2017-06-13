@@ -24,7 +24,7 @@ try {
                 })
             },
             {
-                level: 'info',
+                level: config.server.logging.level,
                 stream: process.stdout
             },
             {
