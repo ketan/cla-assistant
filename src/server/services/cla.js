@@ -105,48 +105,69 @@ module.exports = function () {
         return deferred.promise;
     };
 
-    var check = function (repo, owner, gist_url, user, pr_number, token, repoId, orgId) {
+    var updateQuery = function (query, sharedGist) {
+        if (sharedGist) {
+            var addition = {
+                owner: undefined,
+                repo: undefined,
+                gist_url: query.gist_url,
+            };
+            if (query.gist_version) {
+                addition.gist_version = query.gist_version;
+            }
+            if (query.user) {
+                addition.user = query.user;
+            }
+            return {
+                $or: [query, addition]
+            };
+        }
+        return query;
+    };
+
+    var check = function (repo, owner, gist_url, user, pr_number, token, repoId, orgId, sharedGist) {
         var deferred = q.defer();
 
         getGistObject(gist_url, undefined, token).then(function (gist) {
-                if (!gist.history) {
-                    deferred.reject('No versions found for the given gist url');
-                    return;
-                }
+            if (!gist.history) {
+                deferred.reject('No versions found for the given gist url');
+                return;
+            }
 
-                var args = {
-                    user: user,
-                    gist: gist_url,
-                    gist_version: gist.history[0].version,
-                    repo: repo,
-                    owner: owner,
-                };
-                args.repoId = repoId ? repoId : undefined;
-                args.orgId = orgId ? orgId : undefined;
+            var args = {
+                user: user,
+                gist: gist_url,
+                gist_version: gist.history[0].version,
+                repo: repo,
+                owner: owner,
+                sharedGist: sharedGist
+            };
+            args.repoId = repoId ? repoId : undefined;
+            args.orgId = orgId ? orgId : undefined;
 
-                if (user) {
-                    claService.get(args, function (error, cla) {
-                        deferred.resolve({
-                            signed: !!cla
-                        });
+            if (user) {
+                claService.get(args, function (error, cla) {
+                    deferred.resolve({
+                        signed: !!cla
                     });
-                } else if (pr_number) {
-                    args.number = pr_number;
-                    repoService.getPRCommitters(args, function (error, committers) {
-                        if (error) {
-                            logger.warn(new Error(error).stack);
+                });
+            } else if (pr_number) {
+                args.number = pr_number;
+                repoService.getPRCommitters(args, function (error, committers) {
+                    if (error) {
+                        logger.warn(new Error(error).stack);
+                    }
+                    checkAll(committers, args).then(
+                        function (result) {
+                            deferred.resolve(result);
+                        },
+                        function (error_msg) {
+                            deferred.reject(error_msg);
                         }
-                        checkAll(committers, args).then(
-                            function (result) {
-                                deferred.resolve(result);
-                            },
-                            function (error_msg) {
-                                deferred.reject(error_msg);
-                            }
-                        );
-                    });
-                }
-            },
+                    );
+                });
+            }
+        },
             function (e) {
                 deferred.reject(e);
             }
@@ -253,6 +274,7 @@ module.exports = function () {
             };
 
             var findCla = function () {
+                query = updateQuery(query, args.sharedGist);
                 CLA.findOne(query, function (err, cla) {
                     deferred.resolve();
                     if (typeof done === 'function') {
@@ -303,6 +325,7 @@ module.exports = function () {
                 //         'created_at': -1
                 //     }
                 // }, function (err, cla) {
+                query = updateQuery(query, item.sharedGist);
                 CLA.findOne(query, {}, {
                     sort: {
                         'created_at': -1
@@ -326,7 +349,7 @@ module.exports = function () {
 
 
         check: function (args, done) {
-            if (!args.gist || !args.token) {
+            if (!args.gist || !args.token || args.sharedGist === undefined) {
                 getLinkedItem(args.repo, args.owner, args.token).then(function (item) {
                     args.gist = item.gist;
                     args.token = item.token;
@@ -336,7 +359,7 @@ module.exports = function () {
                         args.repoId = item.repoId;
                     }
 
-                    check(args.repo, args.owner, args.gist, args.user, args.number, item.token, args.repoId, args.orgId).then(function (result) {
+                    check(args.repo, args.owner, args.gist, args.user, args.number, item.token, args.repoId, args.orgId, item.sharedGist).then(function (result) {
                         done(null, result.signed, result.user_map);
                     }, function (err) {
                         done(err);
@@ -346,7 +369,7 @@ module.exports = function () {
                     done(e);
                 });
             } else {
-                check(args.repo, args.owner, args.gist, args.user, args.number, args.token, args.repoId, args.orgId).then(function (result) {
+                check(args.repo, args.owner, args.gist, args.user, args.number, args.token, args.repoId, args.orgId, args.sharedGist).then(function (result) {
                     done(null, result.signed, result.user_map);
                 }, function (err) {
                     done(err);
@@ -364,6 +387,7 @@ module.exports = function () {
 
                 var argsToCheck = args;
                 argsToCheck.orgId = item.orgId ? item.orgId : undefined;
+                argsToCheck.sharedGist = item.sharedGist;
 
                 self.check(argsToCheck, function (e, signed) {
                     if (e || signed) {
@@ -375,14 +399,16 @@ module.exports = function () {
                         var argsToCreate = {};
                         argsToCreate.gist = repo ? repo.gist : org.gist;
                         argsToCreate.gist_version = gist.history[0].version;
-                        argsToCreate.owner = repo ? repo.owner : org.org;
-                        argsToCreate.ownerId = repo ? repo.ownerId : org.orgId;
-                        argsToCreate.org_cla = org ? true : false;
-                        argsToCreate.repo = repo ? repo.repo : args.repo;
-                        argsToCreate.repoId = repo ? repo.repoId : undefined;
                         argsToCreate.user = args.user;
                         argsToCreate.userId = args.userId;
                         argsToCreate.custom_fields = args.custom_fields;
+                        if (!item.sharedGist) {
+                            argsToCreate.owner = repo ? repo.owner : org.org;
+                            argsToCreate.ownerId = repo ? repo.ownerId : org.orgId;
+                            argsToCreate.org_cla = org ? true : false;
+                            argsToCreate.repo = repo ? repo.repo : args.repo;
+                            argsToCreate.repoId = repo ? repo.repoId : undefined;
+                        }
 
                         self.create(argsToCreate, function (error) {
                             if (error) {
@@ -407,22 +433,22 @@ module.exports = function () {
                     'gist_url': '*',
                     'gist_version': '*'
                 }, {
-                    sort: {
-                        'created_at': -1
-                    }
-                }, function (err, clas) {
-                    if (err) {
-                        logger.warn(new Error(err).stack);
-                    } else {
-                        clas.forEach(function (cla) {
-                            if (repoList.indexOf(cla.repo) < 0) {
-                                repoList.push(cla.repo);
-                                claList.push(cla);
-                            }
-                        });
-                    }
-                    cb();
-                });
+                        sort: {
+                            'created_at': -1
+                        }
+                    }, function (err, clas) {
+                        if (err) {
+                            logger.warn(new Error(err).stack);
+                        } else {
+                            clas.forEach(function (cla) {
+                                if (repoList.indexOf(cla.repo) < 0) {
+                                    repoList.push(cla.repo);
+                                    claList.push(cla);
+                                }
+                            });
+                        }
+                        cb();
+                    });
             };
 
             repoService.all(function (e, repos) {
@@ -513,8 +539,12 @@ module.exports = function () {
             var selection = {
                 gist_url: args.gist.gist_url
             };
+            var options = {};
             if (args.gist.gist_version) {
                 selection.gist_version = args.gist.gist_version;
+                options.sort = {
+                    'created_at': -1
+                };
             }
             if (args.repoId) {
                 selection.repoId = args.repoId;
@@ -522,8 +552,27 @@ module.exports = function () {
             if (args.orgId) {
                 selection.ownerId = args.orgId;
             }
+            selection = updateQuery(selection, args.sharedGist);
 
-            CLA.find(selection, done);
+            if (!args.gist.gist_version) {
+                CLA.find(selection, {}, options, done);
+            } else {
+                CLA.find(selection, {}, options, function (err, clas) {
+                    if (err || !clas) {
+                        done(err);
+                        return;
+                    }
+                    var foundSigners = [];
+                    var distinctClas = clas.filter(function (cla) {
+                        if (foundSigners.indexOf(cla.userId) < 0) {
+                            foundSigners.push(cla.userId);
+                            return true;
+                        }
+                        return false;
+                    });
+                    done(null, distinctClas);
+                });
+            }
         },
 
         create: function (args, done) {

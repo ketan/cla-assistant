@@ -29,6 +29,7 @@ describe('', function () {
     var reqArgs;
     var resp;
     var error;
+
     beforeEach(function () {
         reqArgs = {
             cla: {
@@ -145,6 +146,17 @@ describe('', function () {
             assert.deepEqual(args, reqArgs.orgService.get);
             cb(error.orgService.get, resp.orgService.get);
         });
+
+        sinon.stub(log, 'error', function (msg) {
+            assert(msg);
+        });
+        sinon.stub(log, 'warn', function (msg) {
+            assert(msg);
+        });
+        sinon.stub(log, 'info', function (msg) {
+            assert(msg);
+        });
+
     });
     afterEach(function () {
         cla.getGist.restore();
@@ -152,6 +164,10 @@ describe('', function () {
         github.call.restore();
         org_service.get.restore();
         repo_service.get.restore();
+        global.config.server.github.timeToWait = 0;
+        log.error.restore();
+        log.warn.restore();
+        log.info.restore();
     });
 
     describe('cla:get', function () {
@@ -286,7 +302,6 @@ describe('', function () {
                 assert(github.call.calledTwice);
                 assert(gistContent.raw);
                 assert(gistContent.meta);
-                // assert(github.call.calledWithMatch({ obj: 'misc', fun: 'renderMarkdown', token: testData.repo_from_db.token }));
 
                 it_done();
             });
@@ -303,20 +318,6 @@ describe('', function () {
                     token: 'abc'
                 }
             };
-
-            beforeEach(function () {
-                // sinon.stub(github, 'call', function(args, cb) {
-                //     cb(githubError, githubResponse);
-                // });
-                sinon.stub(log, 'error', function (err) {
-                    assert(err);
-                });
-            });
-
-            afterEach(function () {
-                log.error.restore();
-                // github.call.restore();
-            });
 
             it('should handle github error', function (it_done) {
                 resp.github.callMarkdown = {};
@@ -402,7 +403,7 @@ describe('', function () {
             sinon.stub(cla, 'check', function (args, cb) {
                 cb(null, true);
             });
-            sinon.stub(prService, 'editComment', function () { });
+            sinon.stub(prService, 'editComment', function () {});
         });
 
         afterEach(function () {
@@ -462,44 +463,52 @@ describe('', function () {
         it('should update status of all repos of the org', function (it_done) {
             resp.repoService.get = null;
             resp.cla.getLinkedItem = resp.orgService.get;
+            global.config.server.github.timeToWait = 10;
 
-            // this.timeout(100);
+            this.timeout(100);
             cla_api.sign(req, function (err, res) {
                 assert.ifError(err);
                 assert.ok(res);
-                assert.equal(statusService.update.callCount, 4);
-                it_done();
-                // setTimeout(function () {
-                // }, 50);
+                setTimeout(function () {
+                    assert.equal(statusService.update.callCount, 4);
+                    it_done();
+                }, 50);
             });
         });
 
-        // it('should update status of all repos of the org in 100 blocks', function (it_done) {
-        //     this.timeout(1100);
-        //     resp.repoService.get = null;
-        //     resp.cla.getLinkedItem = resp.orgService.get;
-        //     console.log(resp.github.callRepos.length);
-        //     for (var index = 0; index < 100; index++) {
-        //         resp.github.callRepos.push({
-        //             id: 'test_' + index,
-        //             owner: {
-        //                 login: 'org'
-        //             }
-        //         });
-        //     }
-        //     console.log(resp.github.callRepos.length);
-        //     cla_api.sign(req, function (err, res) {
-        //         assert.ifError(err);
-        //         assert.ok(res);
-        //         setTimeout(function () {
-        //             assert.equal(statusService.update.callCount, 100 * 2);
-        //         }, 50);
-        //         setTimeout(function () {
-        //             assert.equal(statusService.update.callCount, 102 * 2);
-        //             it_done();
-        //         }, 550);
-        //     });
-        // });
+        it('should update status of all repos of the org slowing down', function (it_done) {
+            this.timeout(600);
+            resp.repoService.get = null;
+            resp.cla.getLinkedItem = resp.orgService.get;
+            console.log(resp.github.callRepos.length);
+            for (var index = 0; index < 28; index++) {
+                resp.github.callRepos.push({
+                    id: 'test_' + index,
+                    owner: {
+                        login: 'org'
+                    }
+                });
+            }
+            console.log(resp.github.callRepos.length);
+            global.config.server.github.timeToWait = 10;
+
+            cla_api.sign(req, function (err, res) {
+                assert.ifError(err);
+                assert.ok(res);
+                setTimeout(function () {
+                    assert.equal(statusService.update.callCount, 10 * resp.github.callPullRequest.length);
+                }, 100);
+                // 10 * timeToWait delay each 10th block
+                setTimeout(function () {
+                    assert.equal(statusService.update.callCount, 20 * resp.github.callPullRequest.length);
+                }, 300);
+                setTimeout(function () {
+                    assert.equal(statusService.update.callCount, 30 * resp.github.callPullRequest.length);
+                    global.config.server.github.timeToWait = 0;
+                    it_done();
+                }, 550);
+            });
+        });
 
         it('should update status of all open pull requests for the repo', function (it_done) {
             cla_api.sign(req, function (err, res) {
@@ -555,6 +564,18 @@ describe('', function () {
                 }));
                 assert(!statusService.update.called);
 
+                it_done();
+            });
+        });
+
+        it('should call validateSharedGistItems to update status of all repos and orgs with the same shared gist', function (it_done) {
+            sinon.stub(cla_api, 'validateSharedGistItems', function (args, done) {
+                done();
+            });
+            resp.cla.getLinkedItem.sharedGist = true;
+            cla_api.sign(req, function (error) {
+                assert(cla_api.validateSharedGistItems.called);
+                cla_api.validateSharedGistItems.restore();
                 it_done();
             });
         });
@@ -938,7 +959,7 @@ describe('', function () {
             sinon.stub(cla, 'check', function (args, cb) {
                 cb(null, true);
             });
-            sinon.stub(prService, 'editComment', function () { });
+            sinon.stub(prService, 'editComment', function () {});
         });
 
         afterEach(function () {
@@ -996,6 +1017,91 @@ describe('', function () {
                 args: args
             }, function () {
                 assert(cla.getLinkedItem.called);
+                it_done();
+            });
+        });
+    });
+
+    describe('cla: validateSharedGistItems', function () {
+        var req;
+
+        beforeEach(function () {
+            req = {
+                args: {
+                    repo: 'Hello-World',
+                    owner: 'octocat1',
+                    gist: testData.repo_from_db.gist,
+                    sharedGist: true
+                }
+            };
+            var repoWithSharedGist = {
+                repoId: 1296269,
+                owner: 'octocat1',
+                repo: 'Hello-World',
+                gist: 'gist1',
+                token: 'token1',
+                sharedGist: true
+            };
+            var orgWithSharedGist = {
+                orgId: 1,
+                org: 'octocat2',
+                token: 'token',
+                gist: 'gist1',
+                sharedGist: true
+            };
+            error.repoService.getRepoWithSharedGist = null;
+            error.orgService.getOrgWithSharedGist = null;
+            resp.repoService.getRepoWithSharedGist = [repoWithSharedGist];
+            resp.orgService.getOrgWithSharedGist = [orgWithSharedGist];
+            sinon.stub(repo_service, 'getRepoWithSharedGist', function (gist, done) {
+                done(error.repoService.getRepoWithSharedGist, resp.repoService.getRepoWithSharedGist);
+            });
+            sinon.stub(org_service, 'getOrgWithSharedGist', function (gist, done) {
+                done(error.orgService.getOrgWithSharedGist, resp.orgService.getOrgWithSharedGist);
+            });
+            sinon.stub(cla_api, 'validateOrgPullRequests', function (args, done) {
+                done();
+            });
+            sinon.stub(cla_api, 'validatePullRequests', function (args, done) {
+                done();
+            });
+        });
+
+        afterEach(function () {
+            cla_api.validateOrgPullRequests.restore();
+            cla_api.validatePullRequests.restore();
+            repo_service.getRepoWithSharedGist.restore();
+            org_service.getOrgWithSharedGist.restore();
+        });
+
+        it('should call validateOrgPullRequests and validatePullRequests to update status of all repos and orgs with the same shared gist', function (it_done) {
+            cla_api.validateSharedGistItems(req, function (error) {
+                assert.equal(cla_api.validateOrgPullRequests.callCount, 1);
+                assert.equal(cla_api.validatePullRequests.callCount, 1);
+                it_done();
+            });
+        });
+
+        it('should return error when gist not is provided', function (it_done) {
+            req.args.gist = undefined;
+            cla_api.validateSharedGistItems(req, function (err) {
+                assert(err);
+                it_done();
+            });
+        });
+
+        it('should log error when repoService.getRepoWithSharedGist() failed', function (it_done) {
+            error.repoService.getRepoWithSharedGist = 'Error: get shared gist repo failed';
+            cla_api.validateSharedGistItems(req, function (err) {
+                assert(log.error.calledWith(error.repoService.getRepoWithSharedGist));
+                it_done();
+            });
+        });
+
+        it('should log error when orgService.getOrgWithSharedGist() failed', function (it_done) {
+            error.orgService.getOrgWithSharedGist = 'Error: get shared gist org failed';
+            cla_api.validateSharedGistItems(req, function (err) {
+                assert(log.error.calledWith(error.orgService.getOrgWithSharedGist));
                 it_done();
             });
         });

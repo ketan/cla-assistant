@@ -70,9 +70,9 @@ var selection = function (args) {
     return args.repoId ? {
         repoId: args.repoId
     } : {
-            repo: args.repo,
-            owner: args.owner
-        };
+        repo: args.repo,
+        owner: args.owner
+    };
 };
 
 module.exports = {
@@ -94,7 +94,8 @@ module.exports = {
             owner: args.owner,
             repoId: args.repoId,
             gist: args.gist,
-            token: args.token
+            token: args.token,
+            sharedGist: !!args.sharedGist
         }, function (err, repo) {
             done(err, repo);
         });
@@ -123,6 +124,10 @@ module.exports = {
         Repo.find({
             owner: owner
         }, done);
+    },
+
+    getRepoWithSharedGist: function (gist, done) {
+        Repo.find({ gist: gist, sharedGist: true }, done);
     },
 
     update: function (args, done) {
@@ -181,8 +186,8 @@ module.exports = {
                             id: committer.id || ''
                         };
                         if (committers.length === 0 || committers.map(function (c) {
-                            return c.name;
-                        }).indexOf(user.name) < 0) {
+                                return c.name;
+                            }).indexOf(user.name) < 0) {
                             committers.push(user);
                         }
                     });
@@ -191,10 +196,10 @@ module.exports = {
                     if (res && res.message === 'Moved Permanently' && linkedRepo) {
                         self.getGHRepo(args, function (err, res) {
                             if (res && res.id && compareRepoNameAndUpdate(linkedRepo, {
-                                repo: res.name,
-                                owner: res.owner.login,
-                                repoId: res.id
-                            })) {
+                                    repo: res.name,
+                                    owner: res.owner.login,
+                                    repoId: res.id
+                                })) {
                                 arg.arg.repo = res.name;
                                 arg.arg.owner = res.owner.login;
 

@@ -18,7 +18,7 @@ Try
 ====
 CLA assistant is provided by SAP as a free hosted offering under: https://cla-assistant.io/. Please leave us a GitHub issue if you have feedback.
 
-For SAP open source projects please use the [SAP Individual Contributor License Agreement] (https://gist.github.com/CLAassistant/bd1ea8ec8aa0357414e8).
+For SAP open source projects please use the [SAP Individual Contributor License Agreement](https://gist.github.com/CLAassistant/bd1ea8ec8aa0357414e8).
 
 
 Request more information from the CLA signer
@@ -79,6 +79,9 @@ We store all the data in a MongoDB hosted by [mLab](https://mlab.com/).
 
 #### Where can I see the list of signees? Is there a way to import/export the signee data?
 You can see the list of signees on the user interface. There is also a possibility for you to export the list as a .csv file.
+
+#### What should my Contributor License Agreement say?
+We're no lawyers, but we can suggest using http://contributoragreements.org/ for a fill-in-the-blank approach to creating a CLA tailored to your needs.
 
 #### Who can I contact for help?
 In case of problems or any further questions, please open an issue in GitHub. We always appreciate helpful tips and support for the project.

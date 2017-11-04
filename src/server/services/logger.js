@@ -6,9 +6,21 @@ var SentryStream = require('bunyan-sentry-stream').SentryStream;
 var client = new raven.Client(config.server.sentry_dsn);
 var log;
 
-var formatter = function(record, levelName) {
-    return { text: '[' + levelName + '] ' + record.msg + ' (source: ' + record.src.file + ' line: ' + record.src.line + ')' };
+var formatter = function (record, levelName) {
+    return {
+        text: '[' + levelName + '] ' + record.msg + ' (source: ' + record.src.file + ' line: ' + record.src.line + ')'
+    };
 };
+
+log = bunyan.createLogger({
+    src: true,
+    name: config.server.http.host,
+    streams: [{
+        name: 'stdout',
+        level: process.env.ENV == 'debug' ? 'info' : 'debug',
+        stream: process.stdout
+    }]
+});
 
 try {
     log = bunyan.createLogger({
@@ -33,16 +45,25 @@ try {
                 stream: new SentryStream(client)
             }
         ]
+    log.addStream({
+        name: 'slack',
+        level: 'error',
+        stream: new BunyanSlack({
+            webhook_url: config.server.slack_url,
+            channel: '#cla-assistant',
+            username: 'CLA assistant',
+            customFormatter: formatter
+        })
     });
-} catch (e) {
-    log = bunyan.createLogger({
-        src: true,
-        name: config.server.http.host,
-        streams: [{
-            level: 'info',
-            stream: process.stdout
-        }]
+} catch (e) {}
+
+try {
+    log.addStream({
+        name: 'sentry',
+        level: 'warn',
+        type: 'raw', // Mandatory type for SentryStream
+        stream: new SentryStream(client)
     });
-}
+} catch (e) {}
 
 module.exports = log;

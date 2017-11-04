@@ -7,6 +7,12 @@ var passport = require('passport');
 var Strategy = require('passport-github').Strategy;
 var merge = require('merge');
 
+function updateToken(item, newToken) {
+    item.token = newToken;
+    item.save();
+    logger.debug('Update access token for repo / org', item.repo || item.org);
+}
+
 function checkToken(item, accessToken) {
     var newToken = accessToken;
     var oldToken = item.token;
@@ -24,10 +30,15 @@ function checkToken(item, accessToken) {
     };
 
     github.call(args, function (err, data) {
-        if (err || (data && data.scopes && data.scopes.indexOf('write:repo_hook') < 0)) {
-            item.token = newToken;
-            item.save();
-            logger.debug('Update access token for repo / org', item.repo || item.org);
+        if (err || !(data && data.scopes && data.scopes.indexOf('write:repo_hook') >= 0)) {
+            updateToken(item, newToken);
+        } else if (item.repo) {
+            repoService.getGHRepo(item, function (err, ghRepo) {
+                if (err || !(ghRepo && ghRepo.permissions && ghRepo.permissions.admin)) {
+                    updateToken(item, newToken);
+                    logger.info('Update access token for repo ', item.repo, ' admin rights have been changed');
+                }
+            });
         }
     });
 }
@@ -41,7 +52,7 @@ passport.use(new Strategy({
         userProfileURL: url.githubProfile()
         // scope: config.server.github.scopes
     },
-    function(accessToken, refreshToken, params, profile, done) {
+    function (accessToken, refreshToken, params, profile, done) {
         models.User.update({
             uuid: profile.id
         }, {
@@ -50,11 +61,12 @@ passport.use(new Strategy({
             token: accessToken
         }, {
             upsert: true
-        }, function() {
-        });
+        }, function () {});
 
         if (params.scope.indexOf('write:repo_hook') >= 0) {
-            repoService.getUserRepos({ token: accessToken }, function (err, res) {
+            repoService.getUserRepos({
+                token: accessToken
+            }, function (err, res) {
                 if (res && res.length > 0) {
                     res.forEach(function (repo) {
                         checkToken(repo, accessToken);
@@ -65,7 +77,11 @@ passport.use(new Strategy({
             });
         }
         if (params.scope.indexOf('admin:org_hook') >= 0) {
-            orgApi.getForUser({ user: { token: accessToken } }, function (err, res) {
+            orgApi.getForUser({
+                user: {
+                    token: accessToken
+                }
+            }, function (err, res) {
                 if (res && res.length > 0) {
                     res.forEach(function (org) {
                         checkToken(org, accessToken);
@@ -82,10 +98,10 @@ passport.use(new Strategy({
     }
 ));
 
-passport.serializeUser(function(user, done) {
+passport.serializeUser(function (user, done) {
     done(null, user);
 });
 
-passport.deserializeUser(function(user, done) {
+passport.deserializeUser(function (user, done) {
     done(null, user);
 });

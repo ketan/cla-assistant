@@ -313,6 +313,15 @@ describe('webhook pull request', function () {
 				}
 			});
 		});
+		sinon.stub(logger, 'error', function (msg) {
+			assert(msg);
+		});
+		sinon.stub(logger, 'warn', function (msg) {
+			assert(msg);
+		});
+		sinon.stub(logger, 'info', function (msg) {
+			assert(msg);
+		});
 	});
 
 	afterEach(function () {
@@ -323,11 +332,14 @@ describe('webhook pull request', function () {
 		repoService.getGHRepo.restore();
 		repoService.getPRCommitters.restore();
 		status.update.restore();
+		logger.error.restore();
+		logger.warn.restore();
+		logger.info.restore();
 	});
 
 	it('should update status of pull request if not signed', function (it_done) {
 		pull_request(test_req, res);
-		this.timeout(20);
+		this.timeout(100);
 		setTimeout(function () {
 			assert(pullRequest.badgeComment.called);
 			it_done();
@@ -348,7 +360,7 @@ describe('webhook pull request', function () {
 		});
 
 		pull_request(test_req, res);
-		this.timeout(20);
+		this.timeout(100);
 		setTimeout(function () {
 			assert(pullRequest.badgeComment.called);
 			it_done();
@@ -362,7 +374,7 @@ describe('webhook pull request', function () {
 		});
 
 		pull_request(test_req, res);
-		this.timeout(20);
+		this.timeout(100);
 		setTimeout(function () {
 			// assert(!pullRequest.badgeComment.called);
 			assert(pullRequest.badgeComment.called);
@@ -374,7 +386,7 @@ describe('webhook pull request', function () {
 	it('should update status of pull request if not signed and new user', function (it_done) {
 		pull_request(test_req, res);
 
-		this.timeout(20);
+		this.timeout(100);
 		setTimeout(function () {
 			assert(cla.check.called);
 			it_done();
@@ -387,8 +399,7 @@ describe('webhook pull request', function () {
 		sinon.stub(repoService, 'getPRCommitters', function (args, done) {
 			done(null, []);
 		});
-		sinon.stub(logger, 'warn', function () {});
-		this.timeout(50);
+		this.timeout(150);
 		test_req.args.handleDelay = 0;
 
 		pull_request(test_req, res);
@@ -397,7 +408,6 @@ describe('webhook pull request', function () {
 			assert(!cla.check.called);
 			assert(logger.warn.called);
 
-			logger.warn.restore();
 			it_done();
 		}, 40);
 
@@ -424,7 +434,7 @@ describe('webhook pull request', function () {
 		});
 
 		pull_request(test_req, res);
-		this.timeout(20);
+		this.timeout(100);
 		setTimeout(function () {
 			assert.equal(repoService.get.called, true);
 			assert.equal(orgService.get.called, true);
@@ -441,7 +451,7 @@ describe('webhook pull request', function () {
 		});
 
 		pull_request(test_req, res);
-		this.timeout(20);
+		this.timeout(100);
 		setTimeout(function () {
 			assert.equal(repoService.getGHRepo.called, true);
 			assert.equal(orgService.get.called, true);
@@ -463,12 +473,27 @@ describe('webhook pull request', function () {
 		});
 
 		pull_request(test_req, res);
-		this.timeout(20);
+		this.timeout(100);
 		setTimeout(function () {
 			assert.equal(repoService.get.called, true);
 			assert.equal(repoService.getPRCommitters.called, false);
 			assert.equal(cla.check.called, false);
 			it_done();
+		}, 8);
+	});
+
+	it('should do nothing if the pull request hook comes from private repository of an org', function (it_done) {
+		test_req.args.repository.private = true;
+
+		pull_request(test_req, res);
+		this.timeout(100);
+		setTimeout(function () {
+			assert.equal(orgService.get.called, false);
+			assert.equal(repoService.get.called, false);
+			assert.equal(repoService.getPRCommitters.called, false);
+			assert.equal(cla.check.called, false);
+			it_done();
+			test_req.args.repository.private = false;
 		}, 8);
 	});
 

@@ -11,6 +11,8 @@ var orgService = require('../services/org');
 var prService = require('../services/pullRequest');
 var log = require('../services/logger');
 
+var config = require('../../config');
+
 var token;
 
 function markdownRender(content, token) {
@@ -70,14 +72,34 @@ function renderFiles(files, renderToken) {
         });
     }
     q.all([contentPromise, metaPromise]).then(function (data) {
-        gistContent.raw = data[0];
-        gistContent.meta = data[1];
-        deferred.resolve(gistContent);
-    },
+            gistContent.raw = data[0];
+            gistContent.meta = data[1];
+            deferred.resolve(gistContent);
+        },
         function (msg) {
             deferred.reject(msg);
         });
     return deferred.promise;
+}
+
+function getLinkedItemsWithSharedGist(gist, done) {
+    if (!gist) {
+        return done('Gist is required.');
+    }
+    repoService.getRepoWithSharedGist(gist, function (error, repos) {
+        if (error) {
+            log.error(error);
+        }
+        orgService.getOrgWithSharedGist(gist, function (err, orgs) {
+            if (err) {
+                log.error(err);
+            }
+            done(null, {
+                repos: repos,
+                orgs: orgs
+            });
+        });
+    });
 }
 
 module.exports = {
@@ -189,6 +211,7 @@ module.exports = {
                         return;
                     }
                     params.token = item.token;
+                    params.sharedGist = item.sharedGist;
                     if (item.orgId) {
                         params.orgId = item.orgId;
                     } else if (item.repoId) {
@@ -230,11 +253,12 @@ module.exports = {
         }, function (err, repos) {
             orgService.get(req.args, function (err, linkedOrg) {
                 if (repos && !repos.message && repos.length > 0) {
+                    var time = config.server.github.timeToWait;
                     repos
                         .filter(function (repo) {
                             return (linkedOrg.isRepoExcluded === undefined) || !linkedOrg.isRepoExcluded(repo.name);
                         })
-                        .forEach(function (repo) {
+                        .forEach(function (repo, index) {
                             var validateRequest = {
                                 args: {
                                     owner: repo.owner.login,
@@ -243,7 +267,12 @@ module.exports = {
                                 },
                                 user: req.user
                             };
-                            self.validatePullRequests(validateRequest);
+                            //try to avoid rasing githubs abuse rate limit:
+                            //take 1 second per repo and wait 10 seconds after each 10th repo
+                            setTimeout(function () {
+                                log.info('validateOrgPRs for ' + validateRequest.args.owner + '/' + validateRequest.args.repo);
+                                self.validatePullRequests(validateRequest);
+                            }, time * (index + (Math.floor(index / 10) * 10)));
                         });
                 }
                 if (typeof done === 'function') {
@@ -331,6 +360,34 @@ module.exports = {
         }, collectData);
     },
 
+    validateSharedGistItems: function (req, done) {
+        var self = this;
+        getLinkedItemsWithSharedGist(req.args.gist, function (error, sharedItems) {
+            if (error) {
+                done(error);
+            }
+            var items = (sharedItems.repos || []).concat(sharedItems.orgs || []);
+            async.series(items.map(function (item) {
+                return function (callback) {
+                    var tmpReq = {
+                        args: {
+                            token: item.token
+                        }
+                    };
+                    if (item.org) {
+                        tmpReq.args.org = item.org;
+                        return self.validateOrgPullRequests(tmpReq, callback);
+                    }
+                    tmpReq.args.repo = item.repo;
+                    tmpReq.args.owner = item.owner;
+                    self.validatePullRequests(tmpReq, callback);
+                };
+            }), function (err) {
+                done(error);
+            });
+        });
+    },
+
     sign: function (req, done) {
         var args = {
             repo: req.args.repo,
@@ -357,7 +414,14 @@ module.exports = {
                     log.error(e);
                 }
                 req.args.token = item.token;
-                if (item.org) {
+                if (item.sharedGist) {
+                    req.args.gist = item.gist;
+                    self.validateSharedGistItems(req, function (error) {
+                        if (error) {
+                            log.error(error);
+                        }
+                    });
+                } else if (item.org) {
                     req.args.org = item.org;
                     self.validateOrgPullRequests(req);
                 } else {
