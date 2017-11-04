@@ -45,6 +45,7 @@ try {
                 stream: new SentryStream(client)
             }
         ]
+    });
     log.addStream({
         name: 'slack',
         level: 'error',
